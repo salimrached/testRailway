@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>My First Internet Chat!</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+        #messages { 
+            list-style-type: none; 
+            margin: 0; 
+            padding: 0; 
+            height: 400px; 
+            overflow-y: scroll; 
+            border: 1px solid #ccc; 
+            padding: 10px;
+            background: #f9f9f9;
+        }
+        #messages li { 
+            padding: 5px; 
+            margin: 5px 0; 
+            background: white; 
+            border-radius: 5px;
+        }
+        #form { 
+            display: flex; 
+            margin-top: 10px; 
+        }
+        #input { 
+            flex: 1; 
+            padding: 10px; 
+            border: 1px solid #ccc; 
+            border-radius: 5px;
+        }
+        #form button { 
+            padding: 10px 20px; 
+            margin-left: 10px; 
+            background: #007bff; 
+            color: white; 
+            border: none; 
+            border-radius: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>🌍 Internet Chat - Live!</h1>
+    <ul id="messages"></ul>
+    <form id="form">
+        <input id="input" placeholder="Type your message..." autocomplete="off" />
+        <button type="submit">Send</button>
+    </form>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const form = document.getElementById('form');
+        const input = document.getElementById('input');
+        const messages = document.getElementById('messages');
+
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            if (input.value.trim()) {
+                socket.emit('chat message', input.value);
+                input.value = '';
+            }
+        });
+
+        socket.on('chat message', (data) => {
+            const item = document.createElement('li');
+            const time = new Date(data.timestamp).toLocaleTimeString();
+            item.innerHTML = `<strong>${data.id}:</strong> ${data.message} <small>(${time})</small>`;
+            messages.appendChild(item);
+            messages.scrollTop = messages.scrollHeight;
+        });
+
+        socket.on('connect', () => {
+            console.log('Connected to server!');
+        });
+    </script>
+</body>
+</html>
