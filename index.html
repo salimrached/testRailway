@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Multiplayer Drawing</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #f0f0f0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        #canvas {
+            border: 2px solid #ddd;
+            cursor: crosshair;
+            display: block;
+            margin: 10px auto;
+        }
+        .controls {
+            text-align: center;
+            margin: 10px 0;
+        }
+        .controls button, .controls input {
+            margin: 0 5px;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .controls button {
+            background: #007bff;
+            color: white;
+            cursor: pointer;
+        }
+        .controls button:hover {
+            background: #0056b3;
+        }
+        #status {
+            text-align: center;
+            margin: 10px 0;
+            padding: 5px;
+            border-radius: 4px;
+        }
+        .connected { background: #d4edda; color: #155724; }
+        .disconnected { background: #f8d7da; color: #721c24; }
+        .users-count {
+            text-align: center;
+            margin: 5px 0;
+            color: #666;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Multiplayer Drawing App</h1>
+        <div id="status" class="disconnected">Connecting...</div>
+        <div id="usersCount" class="users-count">Users online: 0</div>
+        
+        <div class="controls">
+            <input type="color" id="colorPicker" value="#000000">
+            <input type="range" id="brushSize" min="1" max="20" value="2">
+            <span id="sizeDisplay">2px</span>
+            <button onclick="clearCanvas()">Clear Canvas</button>
+        </div>
+        
+        <canvas id="canvas" width="760" height="400"></canvas>
+        
+        <div style="text-align: center; margin-top: 10px; color: #666;">
+            <small>Draw with your mouse or touch. Changes sync with other users in real-time!</small>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const colorPicker = document.getElementById('colorPicker');
+        const brushSize = document.getElementById('brushSize');
+        const sizeDisplay = document.getElementById('sizeDisplay');
+        const status = document.getElementById('status');
+        const usersCount = document.getElementById('usersCount');
+
+        let isDrawing = false;
+        let lastX = 0;
+        let lastY = 0;
+        
+        // Initialize Socket.IO
+        const socket = io();
+
+        // Socket.IO event handlers
+        socket.on('connect', () => {
+            status.textContent = 'Connected - Ready to draw!';
+            status.className = 'connected';
+        });
+
+        socket.on('disconnect', () => {
+            status.textContent = 'Disconnected - Reconnecting...';
+            status.className = 'disconnected';
+        });
+
+        socket.on('reconnect', () => {
+            status.textContent = 'Reconnected - Ready to draw!';
+            status.className = 'connected';
+        });
+
+        // Listen for drawing events from other users
+        socket.on('draw', (data) => {
+            drawLine(data.x1, data.y1, data.x2, data.y2, data.color, data.size);
+        });
+
+        // Listen for clear canvas events
+        socket.on('clear', () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        });
+
+        // Drawing functions
+        function drawLine(x1, y1, x2, y2, color, size) {
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = size;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.stroke();
+        }
+
+        function getMousePos(e) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top
+            };
+        }
+
+        function getTouchPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: e.touches[0].clientX - rect.left,
+                y: e.touches[0].clientY - rect.top
+            };
+        }
+
+        // Mouse events
+        canvas.addEventListener('mousedown', (e) => {
+            isDrawing = true;
+            const pos = getMousePos(e);
+            lastX = pos.x;
+            lastY = pos.y;
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isDrawing) return;
+            
+            const pos = getMousePos(e);
+            const color = colorPicker.value;
+            const size = brushSize.value;
+            
+            // Draw locally
+            drawLine(lastX, lastY, pos.x, pos.y, color, size);
+            
+            // Send to other users
+            socket.emit('draw', {
+                x1: lastX,
+                y1: lastY,
+                x2: pos.x,
+                y2: pos.y,
+                color: color,
+                size: size
+            });
+            
+            lastX = pos.x;
+            lastY = pos.y;
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            isDrawing = false;
+        });
+
+        canvas.addEventListener('mouseout', () => {
+            isDrawing = false;
+        });
+
+        // Touch events for mobile
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            isDrawing = true;
+            const pos = getTouchPos(e);
+            lastX = pos.x;
+            lastY = pos.y;
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (!isDrawing) return;
+            
+            const pos = getTouchPos(e);
+            const color = colorPicker.value;
+            const size = brushSize.value;
+            
+            // Draw locally
+            drawLine(lastX, lastY, pos.x, pos.y, color, size);
+            
+            // Send to other users
+            socket.emit('draw', {
+                x1: lastX,
+                y1: lastY,
+                x2: pos.x,
+                y2: pos.y,
+                color: color,
+                size: size
+            });
+            
+            lastX = pos.x;
+            lastY = pos.y;
+        });
+
+        canvas.addEventListener('touchend', () => {
+            isDrawing = false;
+        });
+
+        // Brush size display
+        brushSize.addEventListener('input', (e) => {
+            sizeDisplay.textContent = e.target.value + 'px';
+        });
+
+        // Clear canvas function
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            socket.emit('clear');
+        }
+
+        // Prevent scrolling when touching the canvas
+        document.body.addEventListener('touchstart', (e) => {
+            if (e.target === canvas) {
+                e.preventDefault();
+            }
+        }, { passive: false });
+
+        document.body.addEventListener('touchend', (e) => {
+            if (e.target === canvas) {
+                e.preventDefault();
+            }
+        }, { passive: false });
+
+        document.body.addEventListener('touchmove', (e) => {
+            if (e.target === canvas) {
+                e.preventDefault();
+            }
+        }, { passive: false });
+    </script>
+</body>
+</html>
