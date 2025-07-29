@@ -1,80 +1,90 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>My First Internet Chat!</title>
+    <title>Multiplayer TicTacToe</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
-        #messages { 
-            list-style-type: none; 
-            margin: 0; 
-            padding: 0; 
-            height: 400px; 
-            overflow-y: scroll; 
-            border: 1px solid #ccc; 
-            padding: 10px;
-            background: #f9f9f9;
-        }
-        #messages li { 
-            padding: 5px; 
-            margin: 5px 0; 
-            background: white; 
-            border-radius: 5px;
-        }
-        #form { 
-            display: flex; 
-            margin-top: 10px; 
-        }
-        #input { 
-            flex: 1; 
-            padding: 10px; 
-            border: 1px solid #ccc; 
-            border-radius: 5px;
-        }
-        #form button { 
-            padding: 10px 20px; 
-            margin-left: 10px; 
-            background: #007bff; 
-            color: white; 
-            border: none; 
-            border-radius: 5px;
-            cursor: pointer;
-        }
+        body { font-family: Arial, sans-serif; background: #f0f0f0; text-align: center; }
+        #board { display: grid; grid-template-columns: repeat(3, 100px); grid-gap: 10px; margin: 30px auto; }
+        .cell { width: 100px; height: 100px; font-size: 2.5em; background: white; border-radius: 10px; border: 2px solid #007bff; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        #status { margin: 20px; font-size: 1.2em; }
+        #game-controls { margin: 20px; }
+        button { padding: 10px 20px; font-size: 1em; border-radius: 5px; border: none; background: #007bff; color: white; cursor: pointer; }
     </style>
 </head>
 <body>
-    <h1>🌍 Internet Chat - Live!</h1>
-    <ul id="messages"></ul>
-    <form id="form">
-        <input id="input" placeholder="Type your message..." autocomplete="off" />
-        <button type="submit">Send</button>
-    </form>
-
+    <h1>Multiplayer TicTacToe</h1>
+    <div id="game-controls">
+        <button id="create">Create Game</button>
+        <input id="gameIdInput" placeholder="Game ID to join" />
+        <button id="join">Join Game</button>
+    </div>
+    <div id="status">Welcome! Create or join a game.</div>
+    <div id="board"></div>
     <script src="/socket.io/socket.io.js"></script>
     <script>
         const socket = io();
-        const form = document.getElementById('form');
-        const input = document.getElementById('input');
-        const messages = document.getElementById('messages');
+        let symbol = null;
+        let gameId = null;
+        const boardDiv = document.getElementById('board');
+        const statusDiv = document.getElementById('status');
+        const createBtn = document.getElementById('create');
+        const joinBtn = document.getElementById('join');
+        const gameIdInput = document.getElementById('gameIdInput');
 
-        form.addEventListener('submit', (e) => {
-            e.preventDefault();
-            if (input.value.trim()) {
-                socket.emit('chat message', input.value);
-                input.value = '';
+        let board = Array(9).fill(null);
+
+        function renderBoard() {
+            boardDiv.innerHTML = '';
+            board.forEach((cell, idx) => {
+                const cellDiv = document.createElement('div');
+                cellDiv.className = 'cell';
+                cellDiv.textContent = cell || '';
+                cellDiv.onclick = () => {
+                    if (symbol && !cell && !statusDiv.textContent.includes('ended')) {
+                        socket.emit('makeMove', idx);
+                    }
+                };
+                boardDiv.appendChild(cellDiv);
+            });
+        }
+
+        createBtn.onclick = () => {
+            socket.emit('createGame');
+        };
+
+        joinBtn.onclick = () => {
+            const id = gameIdInput.value.trim();
+            if (id) socket.emit('joinGame', id);
+        };
+
+        socket.on('gameCreated', (data) => {
+            gameId = data.gameId;
+            symbol = data.symbol;
+            statusDiv.textContent = `Game created! Your symbol: ${symbol}. Share Game ID: ${gameId}`;
+            renderBoard();
+        });
+
+        socket.on('gameStart', (data) => {
+            symbol = symbol || data.symbol;
+            statusDiv.textContent = `Game started! You are ${symbol}.`;
+            renderBoard();
+        });
+
+        socket.on('updateBoard', (data) => {
+            board = data.board;
+            if (data.winner) {
+                statusDiv.textContent = data.winner === 'Draw' ? 'Game ended in a draw!' : `Player ${data.winner} wins!`;
+            } else {
+                statusDiv.textContent = `Turn: ${data.turn}`;
             }
+            renderBoard();
         });
 
-        socket.on('chat message', (data) => {
-            const item = document.createElement('li');
-            const time = new Date(data.timestamp).toLocaleTimeString();
-            item.innerHTML = `<strong>${data.id}:</strong> ${data.message} <small>(${time})</small>`;
-            messages.appendChild(item);
-            messages.scrollTop = messages.scrollHeight;
+        socket.on('error', (msg) => {
+            statusDiv.textContent = msg;
         });
 
-        socket.on('connect', () => {
-            console.log('Connected to server!');
-        });
+        renderBoard();
     </script>
 </body>
 </html>
