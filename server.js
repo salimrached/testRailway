@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const path = require('path');
+const cors = require('cors');
 
 const app = express();
 const server = http.createServer(app);
@@ -12,105 +13,353 @@ const io = socketIo(server, {
     }
 });
 
-// Serve static files
-app.use(express.static(path.join(__dirname)));
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
 
-// Serve the main page
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
-});
-
-// Store connected users
-const connectedUsers = new Map();
-
-// Generate random user colors
-const userColors = [
-    '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', 
-    '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9',
-    '#F8C471', '#82E0AA', '#F1948A', '#85C1E9', '#D2B4DE'
-];
-
-function getRandomColor() {
-    return userColors[Math.floor(Math.random() * userColors.length)];
+// Game state management
+class GameRoom {
+    constructor(id, size = 3) {
+        this.id = id;
+        this.size = size;
+        this.players = new Map();
+        this.targetBoard = [];
+        this.gameState = 'waiting'; // waiting, countdown, playing, finished
+        this.winner = null;
+        this.startTime = null;
+        this.maxPlayers = 4;
+        
+        this.generateTargetBoard();
+    }
+    
+    generateTargetBoard() {
+        this.targetBoard = [];
+        for (let row = 0; row < this.size; row++) {
+            this.targetBoard[row] = [];
+            for (let col = 0; col < this.size; col++) {
+                this.targetBoard[row][col] = {
+                    id: row * this.size + col,
+                    colorIndex: row,
+                    value: row * this.size + col
+                };
+            }
+        }
+    }
+    
+    addPlayer(playerId, playerName, socket) {
+        if (this.players.size >= this.maxPlayers) {
+            return false;
+        }
+        
+        // Create scrambled board for the player
+        const playerBoard = this.createScrambledBoard();
+        
+        this.players.set(playerId, {
+            id: playerId,
+            name: playerName,
+            socket: socket,
+            board: playerBoard,
+            moves: 0,
+            isReady: false,
+            joinTime: Date.now()
+        });
+        
+        return true;
+    }
+    
+    removePlayer(playerId) {
+        this.players.delete(playerId);
+        if (this.players.size === 0) {
+            // Room is empty, can be cleaned up
+            return true;
+        }
+        return false;
+    }
+    
+    createScrambledBoard() {
+        // Start with target board
+        let board = JSON.parse(JSON.stringify(this.targetBoard));
+        
+        // Apply random rotations to scramble
+        const scrambleMoves = 15 + Math.floor(Math.random() * 10); // 15-25 moves
+        
+        for (let i = 0; i < scrambleMoves; i++) {
+            const moveType = Math.floor(Math.random() * 4);
+            const index = Math.floor(Math.random() * this.size);
+            
+            switch (moveType) {
+                case 0:
+                    this.rotateColumnDown(board, index);
+                    break;
+                case 1:
+                    this.rotateColumnUp(board, index);
+                    break;
+                case 2:
+                    this.rotateRowRight(board, index);
+                    break;
+                case 3:
+                    this.rotateRowLeft(board, index);
+                    break;
+            }
+        }
+        
+        return board;
+    }
+    
+    // Board manipulation methods (same logic as client)
+    rotateColumnDown(board, colIndex) {
+        if (colIndex < 0 || colIndex >= this.size) return;
+        const temp = board[this.size - 1][colIndex];
+        for (let row = this.size - 1; row > 0; row--) {
+            board[row][colIndex] = board[row - 1][colIndex];
+        }
+        board[0][colIndex] = temp;
+    }
+    
+    rotateColumnUp(board, colIndex) {
+        if (colIndex < 0 || colIndex >= this.size) return;
+        const temp = board[0][colIndex];
+        for (let row = 0; row < this.size - 1; row++) {
+            board[row][colIndex] = board[row + 1][colIndex];
+        }
+        board[this.size - 1][colIndex] = temp;
+    }
+    
+    rotateRowRight(board, rowIndex) {
+        if (rowIndex < 0 || rowIndex >= this.size) return;
+        const temp = board[rowIndex][this.size - 1];
+        for (let col = this.size - 1; col > 0; col--) {
+            board[rowIndex][col] = board[rowIndex][col - 1];
+        }
+        board[rowIndex][0] = temp;
+    }
+    
+    rotateRowLeft(board, rowIndex) {
+        if (rowIndex < 0 || rowIndex >= this.size) return;
+        const temp = board[rowIndex][0];
+        for (let col = 0; col < this.size - 1; col++) {
+            board[rowIndex][col] = board[rowIndex][col + 1];
+        }
+        board[rowIndex][this.size - 1] = temp;
+    }
+    
+    applyMove(playerId, moveType, index) {
+        const player = this.players.get(playerId);
+        if (!player || this.gameState !== 'playing') {
+            return false;
+        }
+        
+        // Apply the move to player's board
+        switch (moveType) {
+            case 'columnDown':
+                this.rotateColumnDown(player.board, index);
+                break;
+            case 'columnUp':
+                this.rotateColumnUp(player.board, index);
+                break;
+            case 'rowRight':
+                this.rotateRowRight(player.board, index);
+                break;
+            case 'rowLeft':
+                this.rotateRowLeft(player.board, index);
+                break;
+            default:
+                return false;
+        }
+        
+        player.moves++;
+        
+        // Check if player won
+        if (this.checkWin(player.board)) {
+            this.winner = playerId;
+            this.gameState = 'finished';
+            return 'win';
+        }
+        
+        return 'move';
+    }
+    
+    checkWin(playerBoard) {
+        for (let row = 0; row < this.size; row++) {
+            for (let col = 0; col < this.size; col++) {
+                if (playerBoard[row][col].colorIndex !== this.targetBoard[row][col].colorIndex) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+    
+    startGame() {
+        if (this.players.size < 1) return false;
+        
+        this.gameState = 'countdown';
+        this.startTime = Date.now();
+        
+        // Start countdown, then switch to playing
+        setTimeout(() => {
+            this.gameState = 'playing';
+        }, 3000); // 3 second countdown
+        
+        return true;
+    }
+    
+    getGameState() {
+        return {
+            id: this.id,
+            size: this.size,
+            gameState: this.gameState,
+            targetBoard: this.targetBoard,
+            players: Array.from(this.players.values()).map(p => ({
+                id: p.id,
+                name: p.name,
+                moves: p.moves,
+                board: p.board
+            })),
+            winner: this.winner,
+            startTime: this.startTime
+        };
+    }
 }
 
-function generateUsername() {
-    const adjectives = ['Creative', 'Artistic', 'Swift', 'Bright', 'Cool', 'Smart', 'Quick', 'Bold', 'Calm', 'Wise'];
-    const nouns = ['Artist', 'Painter', 'Drawer', 'Creator', 'Sketcher', 'Designer', 'Brush', 'Pen', 'Canvas', 'Color'];
-    const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
-    const noun = nouns[Math.floor(Math.random() * nouns.length)];
-    const num = Math.floor(Math.random() * 999) + 1;
-    return `${adj}${noun}${num}`;
+// Game rooms management
+const gameRooms = new Map();
+const playerRooms = new Map(); // Track which room each player is in
+
+function findOrCreateRoom(size = 3) {
+    // Try to find a room with space
+    for (const [roomId, room] of gameRooms) {
+        if (room.players.size < room.maxPlayers && room.gameState === 'waiting' && room.size === size) {
+            return room;
+        }
+    }
+    
+    // Create new room
+    const roomId = `room_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const newRoom = new GameRoom(roomId, size);
+    gameRooms.set(roomId, newRoom);
+    return newRoom;
 }
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
-    console.log('New client connected:', socket.id);
+    console.log(`Player connected: ${socket.id}`);
     
-    // Create user profile
-    const userProfile = {
-        id: socket.id,
-        username: generateUsername(),
-        color: getRandomColor(),
-        joinedAt: new Date()
-    };
-    
-    connectedUsers.set(socket.id, userProfile);
-    
-    // Send user their profile
-    socket.emit('userProfile', userProfile);
-    
-    // Send current user count to all clients
-    io.emit('userCount', io.engine.clientsCount);
-    
-    // Broadcast new user joined
-    socket.broadcast.emit('userJoined', {
-        username: userProfile.username,
-        color: userProfile.color
-    });
-    
-    // Handle drawing events
-    socket.on('draw', (data) => {
-        const user = connectedUsers.get(socket.id);
-        if (user) {
-            // Add user info to drawing data
-            const drawData = {
-                ...data,
-                username: user.username,
-                userColor: user.color
-            };
-            socket.broadcast.emit('draw', drawData);
+    socket.on('joinGame', (data) => {
+        const { playerName, gridSize } = data;
+        const size = gridSize || 3;
+        
+        // Find or create room
+        const room = findOrCreateRoom(size);
+        
+        // Add player to room
+        if (room.addPlayer(socket.id, playerName || `Player_${socket.id.substr(0, 4)}`, socket)) {
+            socket.join(room.id);
+            playerRooms.set(socket.id, room.id);
+            
+            console.log(`Player ${socket.id} joined room ${room.id}`);
+            
+            // Send initial game state to player
+            socket.emit('gameJoined', {
+                roomId: room.id,
+                playerId: socket.id,
+                gameState: room.getGameState()
+            });
+            
+            // Broadcast updated game state to all players in room
+            io.to(room.id).emit('gameStateUpdate', room.getGameState());
+            
+            // Auto-start if room has players (for testing)
+            if (room.players.size >= 1 && room.gameState === 'waiting') {
+                setTimeout(() => {
+                    if (room.startGame()) {
+                        io.to(room.id).emit('gameStarting', {
+                            countdown: 3,
+                            gameState: room.getGameState()
+                        });
+                        
+                        setTimeout(() => {
+                            io.to(room.id).emit('gameStateUpdate', room.getGameState());
+                        }, 3000);
+                    }
+                }, 2000); // 2 second delay before starting
+            }
+        } else {
+            socket.emit('joinError', { message: 'Room is full' });
         }
     });
     
-    // Handle clear canvas events
-    socket.on('clear', () => {
-        const user = connectedUsers.get(socket.id);
-        socket.broadcast.emit('clear', {
-            clearedBy: user ? user.username : 'Unknown'
-        });
+    socket.on('makeMove', (data) => {
+        const roomId = playerRooms.get(socket.id);
+        const room = gameRooms.get(roomId);
+        
+        if (!room) {
+            socket.emit('error', { message: 'Room not found' });
+            return;
+        }
+        
+        const { moveType, index } = data;
+        const result = room.applyMove(socket.id, moveType, index);
+        
+        if (result === 'win') {
+            // Player won!
+            io.to(room.id).emit('gameWon', {
+                winner: socket.id,
+                winnerName: room.players.get(socket.id).name,
+                gameState: room.getGameState()
+            });
+        } else if (result === 'move') {
+            // Valid move, broadcast update
+            io.to(room.id).emit('gameStateUpdate', room.getGameState());
+        } else {
+            socket.emit('invalidMove', { message: 'Invalid move' });
+        }
     });
     
     socket.on('disconnect', () => {
-        const user = connectedUsers.get(socket.id);
-        console.log('Client disconnected:', socket.id, user ? user.username : '');
+        console.log(`Player disconnected: ${socket.id}`);
         
-        if (user) {
-            // Broadcast user left
-            socket.broadcast.emit('userLeft', {
-                username: user.username,
-                color: user.color
-            });
+        const roomId = playerRooms.get(socket.id);
+        if (roomId) {
+            const room = gameRooms.get(roomId);
+            if (room) {
+                const isEmpty = room.removePlayer(socket.id);
+                
+                if (isEmpty) {
+                    // Clean up empty room
+                    gameRooms.delete(roomId);
+                    console.log(`Room ${roomId} deleted (empty)`);
+                } else {
+                    // Broadcast updated game state
+                    io.to(roomId).emit('playerLeft', {
+                        playerId: socket.id,
+                        gameState: room.getGameState()
+                    });
+                }
+            }
+            playerRooms.delete(socket.id);
         }
-        
-        connectedUsers.delete(socket.id);
-        
-        // Send updated user count to all remaining clients
-        io.emit('userCount', io.engine.clientsCount);
     });
 });
 
+// Routes
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/api/status', (req, res) => {
+    res.json({
+        status: 'online',
+        rooms: gameRooms.size,
+        totalPlayers: Array.from(gameRooms.values()).reduce((sum, room) => sum + room.players.size, 0)
+    });
+});
+
+// Get port from environment variable or default to 3000
 const PORT = process.env.PORT || 3000;
+
 server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`🎮 Squareg Multiplayer Server running on port ${PORT}`);
+    console.log(`🌐 Ready for Railway deployment!`);
 });
