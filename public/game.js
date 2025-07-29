@@ -26,7 +26,12 @@ class SquaregMultiplayer {
         this.countdownOverlay = document.getElementById('countdownOverlay');
         
         this.playerNameInput = document.getElementById('playerNameInput');
+        this.createGameBtn = document.getElementById('createGameBtn');
+        this.showJoinFormBtn = document.getElementById('showJoinFormBtn');
+        this.joinGameForm = document.getElementById('joinGameForm');
+        this.roomCodeInput = document.getElementById('roomCodeInput');
         this.joinGameBtn = document.getElementById('joinGameBtn');
+        this.backToMenuBtn = document.getElementById('backToMenuBtn');
         this.leaveGameBtn = document.getElementById('leaveGameBtn');
         this.playAgainBtn = document.getElementById('playAgainBtn');
         
@@ -42,7 +47,8 @@ class SquaregMultiplayer {
         this.connectionStatus = document.getElementById('connectionStatus');
         this.statusIndicator = document.getElementById('statusIndicator');
         this.statusText = document.getElementById('statusText');
-        this.roomIdDisplay = document.getElementById('roomId');
+        this.roomCodeDisplay = document.getElementById('roomCode');
+        this.copyRoomCodeBtn = document.getElementById('copyRoomCodeBtn');
         this.gameStatusDisplay = document.getElementById('gameStatus');
         this.gameTimerDisplay = document.getElementById('gameTimer');
         this.playersList = document.getElementById('playersList');
@@ -54,15 +60,34 @@ class SquaregMultiplayer {
     
     setupEventListeners() {
         // Lobby events
-        this.joinGameBtn.addEventListener('click', () => this.joinGame());
+        this.createGameBtn.addEventListener('click', () => this.createGame());
+        this.showJoinFormBtn.addEventListener('click', () => this.showJoinForm());
+        this.joinGameBtn.addEventListener('click', () => this.joinGameWithCode());
+        this.backToMenuBtn.addEventListener('click', () => this.showMainMenu());
         this.leaveGameBtn.addEventListener('click', () => this.leaveGame());
         this.playAgainBtn.addEventListener('click', () => this.playAgain());
+        this.copyRoomCodeBtn.addEventListener('click', () => this.copyRoomCode());
         
-        // Enter key to join
+        // Enter key handlers
         this.playerNameInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
-                this.joinGame();
+                if (this.joinGameForm.style.display === 'none') {
+                    this.createGame();
+                } else {
+                    this.joinGameWithCode();
+                }
             }
+        });
+        
+        this.roomCodeInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                this.joinGameWithCode();
+            }
+        });
+        
+        // Format room code input
+        this.roomCodeInput.addEventListener('input', (e) => {
+            e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
         });
         
         // Grid size selection
@@ -98,6 +123,16 @@ class SquaregMultiplayer {
         });
         
         // Game events
+        this.socket.on('gameCreated', (data) => {
+            console.log('Game created:', data);
+            this.playerId = data.playerId;
+            this.roomId = data.roomId;
+            this.gameState = data.gameState;
+            this.showGameScreen();
+            this.updateGameDisplay();
+            this.showRoomCode(data.roomCode);
+        });
+        
         this.socket.on('gameJoined', (data) => {
             console.log('Game joined:', data);
             this.playerId = data.playerId;
@@ -105,6 +140,9 @@ class SquaregMultiplayer {
             this.gameState = data.gameState;
             this.showGameScreen();
             this.updateGameDisplay();
+            if (data.roomCode) {
+                this.showRoomCode(data.roomCode);
+            }
         });
         
         this.socket.on('gameStateUpdate', (gameState) => {
@@ -150,12 +188,70 @@ class SquaregMultiplayer {
         this.statusText.textContent = text;
     }
     
-    joinGame() {
+    createGame() {
         const playerName = this.playerNameInput.value.trim() || `Player_${Math.floor(Math.random() * 1000)}`;
+        
+        this.socket.emit('createGame', {
+            playerName: playerName,
+            gridSize: this.currentSize
+        });
+    }
+    
+    showJoinForm() {
+        this.joinGameForm.style.display = 'block';
+        this.roomCodeInput.focus();
+    }
+    
+    showMainMenu() {
+        this.joinGameForm.style.display = 'none';
+        this.roomCodeInput.value = '';
+    }
+    
+    joinGameWithCode() {
+        const playerName = this.playerNameInput.value.trim() || `Player_${Math.floor(Math.random() * 1000)}`;
+        const roomCode = this.roomCodeInput.value.trim().toUpperCase();
+        
+        if (!roomCode) {
+            alert('Please enter a room code');
+            return;
+        }
         
         this.socket.emit('joinGame', {
             playerName: playerName,
-            gridSize: this.currentSize
+            roomCode: roomCode
+        });
+    }
+    
+    copyRoomCode() {
+        const roomCode = this.roomCodeDisplay.textContent;
+        navigator.clipboard.writeText(roomCode).then(() => {
+            const btn = this.copyRoomCodeBtn;
+            const originalText = btn.textContent;
+            btn.textContent = '✓ Copied!';
+            btn.classList.add('copied');
+            
+            setTimeout(() => {
+                btn.textContent = originalText;
+                btn.classList.remove('copied');
+            }, 2000);
+        }).catch(() => {
+            // Fallback for older browsers
+            const textArea = document.createElement('textarea');
+            textArea.value = roomCode;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            
+            const btn = this.copyRoomCodeBtn;
+            const originalText = btn.textContent;
+            btn.textContent = '✓ Copied!';
+            btn.classList.add('copied');
+            
+            setTimeout(() => {
+                btn.textContent = originalText;
+                btn.classList.remove('copied');
+            }, 2000);
         });
     }
     
@@ -217,6 +313,11 @@ class SquaregMultiplayer {
         this.lobbyScreen.style.display = 'none';
         this.gameScreen.style.display = 'grid';
         this.hideWinScreen();
+    }
+    
+    showRoomCode(roomCode) {
+        this.roomCodeDisplay.textContent = roomCode;
+        this.copyRoomCodeBtn.style.display = 'inline-block';
     }
     
     showWinScreen(winData) {
@@ -311,7 +412,6 @@ class SquaregMultiplayer {
         if (!this.gameState) return;
         
         // Update room info
-        this.roomIdDisplay.textContent = this.gameState.id.split('_')[1] || 'Unknown';
         this.gameStatusDisplay.textContent = this.gameState.gameState;
         
         // Update players list

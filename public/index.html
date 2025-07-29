@@ -19,16 +19,56 @@
         
         <!-- Lobby Screen -->
         <div class="lobby-screen" id="lobbyScreen">
-            <div class="join-form">
-                <h2>Join Game</h2>
-                <input type="text" id="playerNameInput" placeholder="Enter your name" maxlength="12">
+            <div class="lobby-form">
+                <h2>Squareg Multiplayer</h2>
+                
+                <!-- Player Name Input -->
+                <div class="player-setup">
+                    <input type="text" id="playerNameInput" placeholder="Enter your name" maxlength="12">
+                </div>
+                
+                <!-- Grid Size Selection -->
                 <div class="grid-size-selection">
                     <label>Grid Size:</label>
                     <button class="size-btn active" data-size="3">3x3</button>
                     <button class="size-btn" data-size="4">4x4</button>
                     <button class="size-btn" data-size="5">5x5</button>
                 </div>
-                <button id="joinGameBtn" class="control-btn primary">Join Game</button>
+                
+                <!-- Game Mode Selection -->
+                <div class="game-mode-selection">
+                    <h3>Choose Game Mode:</h3>
+                    
+                    <div class="mode-option">
+                        <button id="createGameBtn" class="mode-btn primary">
+                            <span class="mode-icon">🎮</span>
+                            <div class="mode-text">
+                                <strong>Create Game</strong>
+                                <small>Start a new game and get a room code to share</small>
+                            </div>
+                        </button>
+                    </div>
+                    
+                    <div class="mode-option">
+                        <button id="showJoinFormBtn" class="mode-btn secondary">
+                            <span class="mode-icon">🚪</span>
+                            <div class="mode-text">
+                                <strong>Join Game</strong>
+                                <small>Enter a friend's room code to join their game</small>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Join Game Form (Hidden initially) -->
+                <div class="join-game-form" id="joinGameForm" style="display: none;">
+                    <h3>Join Friend's Game</h3>
+                    <div class="room-code-input">
+                        <input type="text" id="roomCodeInput" placeholder="Enter Room Code (e.g. ABC123)" maxlength="6">
+                        <button id="joinGameBtn" class="control-btn primary">Join Game</button>
+                    </div>
+                    <button id="backToMenuBtn" class="control-btn secondary small">← Back to Menu</button>
+                </div>
             </div>
         </div>
         
@@ -36,7 +76,8 @@
         <div class="game-screen" id="gameScreen" style="display: none;">
             <div class="game-info">
                 <div class="room-info">
-                    <span>Room: <span id="roomId">-</span></span>
+                    <span>Room Code: <span id="roomCode" class="room-code-display">-</span></span>
+                    <button id="copyRoomCodeBtn" class="copy-btn" style="display: none;">📋 Copy</button>
                     <span>Status: <span id="gameStatus">Waiting</span></span>
                 </div>
                 <div class="timer" id="gameTimer">00:00</div>

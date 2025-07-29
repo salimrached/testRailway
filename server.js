@@ -20,8 +20,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Game state management
 class GameRoom {
-    constructor(id, size = 3) {
+    constructor(id, size = 3, roomCode = null) {
         this.id = id;
+        this.roomCode = roomCode || this.generateRoomCode();
         this.size = size;
         this.players = new Map();
         this.targetBoard = [];
@@ -31,6 +32,15 @@ class GameRoom {
         this.maxPlayers = 4;
         
         this.generateTargetBoard();
+    }
+    
+    generateRoomCode() {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        let result = '';
+        for (let i = 0; i < 6; i++) {
+            result += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return result;
     }
     
     generateTargetBoard() {
@@ -208,6 +218,7 @@ class GameRoom {
     getGameState() {
         return {
             id: this.id,
+            roomCode: this.roomCode,
             size: this.size,
             gameState: this.gameState,
             targetBoard: this.targetBoard,
@@ -223,46 +234,89 @@ class GameRoom {
     }
 }
 
-// Game rooms management
+//s Game rooms management
 const gameRooms = new Map();
+const roomCodeMap = new Map(); // Map room codes to room IDs
 const playerRooms = new Map(); // Track which room each player is in
 
-function findOrCreateRoom(size = 3) {
-    // Try to find a room with space
-    for (const [roomId, room] of gameRooms) {
-        if (room.players.size < room.maxPlayers && room.gameState === 'waiting' && room.size === size) {
-            return room;
-        }
-    }
-    
-    // Create new room
+function createRoom(size = 3) {
     const roomId = `room_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const newRoom = new GameRoom(roomId, size);
     gameRooms.set(roomId, newRoom);
+    roomCodeMap.set(newRoom.roomCode, roomId);
     return newRoom;
+}
+
+function findRoomByCode(roomCode) {
+    const roomId = roomCodeMap.get(roomCode.toUpperCase());
+    return roomId ? gameRooms.get(roomId) : null;
 }
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
     console.log(`Player connected: ${socket.id}`);
     
-    socket.on('joinGame', (data) => {
+    socket.on('createGame', (data) => {
         const { playerName, gridSize } = data;
         const size = gridSize || 3;
         
-        // Find or create room
-        const room = findOrCreateRoom(size);
+        // Create new room
+        const room = createRoom(size);
         
         // Add player to room
         if (room.addPlayer(socket.id, playerName || `Player_${socket.id.substr(0, 4)}`, socket)) {
             socket.join(room.id);
             playerRooms.set(socket.id, room.id);
             
-            console.log(`Player ${socket.id} joined room ${room.id}`);
+            console.log(`Player ${socket.id} created room ${room.id} with code ${room.roomCode}`);
+            
+            // Send room creation confirmation
+            socket.emit('gameCreated', {
+                roomId: room.id,
+                roomCode: room.roomCode,
+                playerId: socket.id,
+                gameState: room.getGameState()
+            });
+            
+            // Broadcast updated game state to all players in room
+            io.to(room.id).emit('gameStateUpdate', room.getGameState());
+        } else {
+            socket.emit('joinError', { message: 'Failed to create room' });
+        }
+    });
+    
+    socket.on('joinGame', (data) => {
+        const { playerName, roomCode } = data;
+        
+        if (!roomCode) {
+            socket.emit('joinError', { message: 'Room code is required' });
+            return;
+        }
+        
+        // Find room by code
+        const room = findRoomByCode(roomCode);
+        
+        if (!room) {
+            socket.emit('joinError', { message: 'Room not found. Please check the room code.' });
+            return;
+        }
+        
+        if (room.gameState !== 'waiting') {
+            socket.emit('joinError', { message: 'Game already in progress' });
+            return;
+        }
+        
+        // Add player to room
+        if (room.addPlayer(socket.id, playerName || `Player_${socket.id.substr(0, 4)}`, socket)) {
+            socket.join(room.id);
+            playerRooms.set(socket.id, room.id);
+            
+            console.log(`Player ${socket.id} joined room ${room.id} with code ${room.roomCode}`);
             
             // Send initial game state to player
             socket.emit('gameJoined', {
                 roomId: room.id,
+                roomCode: room.roomCode,
                 playerId: socket.id,
                 gameState: room.getGameState()
             });
@@ -270,8 +324,8 @@ io.on('connection', (socket) => {
             // Broadcast updated game state to all players in room
             io.to(room.id).emit('gameStateUpdate', room.getGameState());
             
-            // Auto-start if room has players (for testing)
-            if (room.players.size >= 1 && room.gameState === 'waiting') {
+            // Auto-start if room has 2+ players (for testing)
+            if (room.players.size >= 2 && room.gameState === 'waiting') {
                 setTimeout(() => {
                     if (room.startGame()) {
                         io.to(room.id).emit('gameStarting', {
@@ -329,6 +383,7 @@ io.on('connection', (socket) => {
                 if (isEmpty) {
                     // Clean up empty room
                     gameRooms.delete(roomId);
+                    roomCodeMap.delete(room.roomCode);
                     console.log(`Room ${roomId} deleted (empty)`);
                 } else {
                     // Broadcast updated game state
