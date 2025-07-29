@@ -24,6 +24,9 @@ app.get('/', (req, res) => {
 io.on('connection', (socket) => {
     console.log('New client connected:', socket.id);
     
+    // Send current user count to all clients
+    io.emit('userCount', io.engine.clientsCount);
+    
     // Handle drawing events
     socket.on('draw', (data) => {
         socket.broadcast.emit('draw', data);
@@ -36,6 +39,8 @@ io.on('connection', (socket) => {
     
     socket.on('disconnect', () => {
         console.log('Client disconnected:', socket.id);
+        // Send updated user count to all remaining clients
+        io.emit('userCount', io.engine.clientsCount);
     });
 });
 
