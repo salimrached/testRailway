@@ -78,6 +78,7 @@
                 <div class="room-info">
                     <span>Room Code: <span id="roomCode" class="room-code-display">-</span></span>
                     <button id="copyRoomCodeBtn" class="copy-btn" style="display: none;">📋 Copy</button>
+                    <span>Round: <span id="roundInfo">1/7</span></span>
                     <span>Status: <span id="gameStatus">Waiting</span></span>
                 </div>
                 <div class="timer" id="gameTimer">00:00</div>
@@ -85,7 +86,7 @@
             
             <!-- Players List -->
             <div class="players-container">
-                <h3>Players (<span id="playerCount">0</span>)</h3>
+                <h3>Scoreboard (<span id="playerCount">0</span> Players)</h3>
                 <div class="players-list" id="playersList">
                     <!-- Players will be added dynamically -->
                 </div>
@@ -140,17 +141,33 @@
             </div>
         </div>
         
-        <!-- Win Screen -->
-        <div class="win-screen" id="winScreen" style="display: none;">
-            <div class="win-content">
-                <h2 id="winTitle">Game Over!</h2>
-                <div class="winner-info" id="winnerInfo">
-                    <!-- Winner details will be added here -->
+        <!-- Round Win Screen -->
+        <div class="round-win-screen" id="roundWinScreen" style="display: none;">
+            <div class="round-win-content">
+                <h2 id="roundWinTitle">Round Complete!</h2>
+                <div class="round-winner-info" id="roundWinnerInfo">
+                    <!-- Round winner details will be added here -->
                 </div>
-                <div class="final-stats" id="finalStats">
-                    <!-- Game stats will be added here -->
+                <div class="round-progress" id="roundProgress">
+                    <!-- Round progress will be added here -->
                 </div>
-                <button id="playAgainBtn" class="control-btn primary">Play Again</button>
+                <div class="next-round-countdown" id="nextRoundCountdown">
+                    Next round starting in: <span id="nextRoundTimer">3</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Match Win Screen -->
+        <div class="match-win-screen" id="matchWinScreen" style="display: none;">
+            <div class="match-win-content">
+                <h2 id="matchWinTitle">🏆 MATCH WINNER! 🏆</h2>
+                <div class="match-winner-info" id="matchWinnerInfo">
+                    <!-- Match winner details will be added here -->
+                </div>
+                <div class="final-match-stats" id="finalMatchStats">
+                    <!-- Match stats will be added here -->
+                </div>
+                <button id="playNewMatchBtn" class="control-btn primary">Play New Match</button>
             </div>
         </div>
         

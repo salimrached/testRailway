@@ -22,7 +22,8 @@ class SquaregMultiplayer {
         // Lobby elements
         this.lobbyScreen = document.getElementById('lobbyScreen');
         this.gameScreen = document.getElementById('gameScreen');
-        this.winScreen = document.getElementById('winScreen');
+        this.roundWinScreen = document.getElementById('roundWinScreen');
+        this.matchWinScreen = document.getElementById('matchWinScreen');
         this.countdownOverlay = document.getElementById('countdownOverlay');
         
         this.playerNameInput = document.getElementById('playerNameInput');
@@ -33,7 +34,7 @@ class SquaregMultiplayer {
         this.joinGameBtn = document.getElementById('joinGameBtn');
         this.backToMenuBtn = document.getElementById('backToMenuBtn');
         this.leaveGameBtn = document.getElementById('leaveGameBtn');
-        this.playAgainBtn = document.getElementById('playAgainBtn');
+        this.playNewMatchBtn = document.getElementById('playNewMatchBtn');
         
         // Game elements
         this.gameBoard = document.getElementById('gameBoard');
@@ -50,6 +51,7 @@ class SquaregMultiplayer {
         this.roomCodeDisplay = document.getElementById('roomCode');
         this.copyRoomCodeBtn = document.getElementById('copyRoomCodeBtn');
         this.gameStatusDisplay = document.getElementById('gameStatus');
+        this.roundInfoDisplay = document.getElementById('roundInfo');
         this.gameTimerDisplay = document.getElementById('gameTimer');
         this.playersList = document.getElementById('playersList');
         this.playerCount = document.getElementById('playerCount');
@@ -65,7 +67,7 @@ class SquaregMultiplayer {
         this.joinGameBtn.addEventListener('click', () => this.joinGameWithCode());
         this.backToMenuBtn.addEventListener('click', () => this.showMainMenu());
         this.leaveGameBtn.addEventListener('click', () => this.leaveGame());
-        this.playAgainBtn.addEventListener('click', () => this.playAgain());
+        this.playNewMatchBtn.addEventListener('click', () => this.playNewMatch());
         this.copyRoomCodeBtn.addEventListener('click', () => this.copyRoomCode());
         
         // Enter key handlers
@@ -157,10 +159,24 @@ class SquaregMultiplayer {
             this.showCountdown(data.countdown);
         });
         
-        this.socket.on('gameWon', (data) => {
-            console.log('Game won:', data);
+        this.socket.on('roundWon', (data) => {
+            console.log('Round won:', data);
             this.gameState = data.gameState;
-            this.showWinScreen(data);
+            this.showRoundWinScreen(data);
+        });
+        
+        this.socket.on('matchWon', (data) => {
+            console.log('Match won:', data);
+            this.gameState = data.gameState;
+            this.showMatchWinScreen(data);
+        });
+        
+        this.socket.on('nextRoundStarting', (data) => {
+            console.log('Next round starting:', data);
+            this.gameState = data.gameState;
+            this.hideRoundWinScreen();
+            this.showCountdown(data.countdown, `Round ${data.roundNumber} Starting...`);
+            this.updateGameDisplay();
         });
         
         this.socket.on('playerLeft', (data) => {
@@ -262,8 +278,8 @@ class SquaregMultiplayer {
         this.resetGame();
     }
     
-    playAgain() {
-        this.hideWinScreen();
+    playNewMatch() {
+        this.hideMatchWinScreen();
         this.leaveGame();
     }
     
@@ -305,14 +321,16 @@ class SquaregMultiplayer {
     showLobbyScreen() {
         this.lobbyScreen.style.display = 'block';
         this.gameScreen.style.display = 'none';
-        this.hideWinScreen();
+        this.hideRoundWinScreen();
+        this.hideMatchWinScreen();
         this.hideCountdown();
     }
     
     showGameScreen() {
         this.lobbyScreen.style.display = 'none';
         this.gameScreen.style.display = 'grid';
-        this.hideWinScreen();
+        this.hideRoundWinScreen();
+        this.hideMatchWinScreen();
     }
     
     showRoomCode(roomCode) {
@@ -320,42 +338,106 @@ class SquaregMultiplayer {
         this.copyRoomCodeBtn.style.display = 'inline-block';
     }
     
-    showWinScreen(winData) {
-        this.winScreen.style.display = 'flex';
+    showRoundWinScreen(winData) {
+        this.roundWinScreen.style.display = 'flex';
         
-        const winTitle = document.getElementById('winTitle');
-        const winnerInfo = document.getElementById('winnerInfo');
-        const finalStats = document.getElementById('finalStats');
+        const roundWinTitle = document.getElementById('roundWinTitle');
+        const roundWinnerInfo = document.getElementById('roundWinnerInfo');
+        const roundProgress = document.getElementById('roundProgress');
         
         if (winData.winner === this.playerId) {
-            winTitle.textContent = '🎉 You Won! 🎉';
-            winTitle.style.color = '#f39c12';
+            roundWinTitle.textContent = '🎉 You Won This Round! 🎉';
+            roundWinTitle.style.color = '#f39c12';
         } else {
-            winTitle.textContent = 'Game Over';
-            winTitle.style.color = '#e74c3c';
+            roundWinTitle.textContent = 'Round Complete';
+            roundWinTitle.style.color = '#e74c3c';
         }
         
-        winnerInfo.innerHTML = `
-            <h3>Winner: ${winData.winnerName}</h3>
-            <p>Congratulations!</p>
+        roundWinnerInfo.innerHTML = `
+            <h3>${winData.winnerName} wins Round ${winData.roundNumber}!</h3>
+            <p>Current Score: ${winData.score} rounds won</p>
         `;
         
-        const winner = this.gameState.players.find(p => p.id === winData.winner);
-        finalStats.innerHTML = `
-            <h4>Final Stats:</h4>
-            <p>Winner's Moves: ${winner?.moves || 'N/A'}</p>
-            <p>Your Moves: ${this.moveCount}</p>
-            <p>Players: ${this.gameState.players.length}</p>
+        const requiredWins = Math.ceil(this.gameState.maxRounds / 2);
+        roundProgress.innerHTML = `
+            <h4>Match Progress (First to ${requiredWins} wins):</h4>
+            ${this.getScoreboardHTML()}
         `;
+        
+        this.startNextRoundCountdown();
     }
     
-    hideWinScreen() {
-        this.winScreen.style.display = 'none';
+    showMatchWinScreen(winData) {
+        this.matchWinScreen.style.display = 'flex';
+        
+        const matchWinTitle = document.getElementById('matchWinTitle');
+        const matchWinnerInfo = document.getElementById('matchWinnerInfo');
+        const finalMatchStats = document.getElementById('finalMatchStats');
+        
+        if (winData.winner === this.playerId) {
+            matchWinTitle.textContent = '🏆 YOU WON THE MATCH! 🏆';
+            matchWinTitle.style.color = '#f39c12';
+        } else {
+            matchWinTitle.textContent = '🏆 MATCH COMPLETE 🏆';
+            matchWinTitle.style.color = '#e74c3c';
+        }
+        
+        matchWinnerInfo.innerHTML = `
+            <h3>🎉 ${winData.winnerName} is the Champion! 🎉</h3>
+            <p>Final Score: ${winData.finalScore} rounds won</p>
+        `;
+        
+        finalMatchStats.innerHTML = `
+            <h4>Final Scoreboard:</h4>
+            ${this.getScoreboardHTML()}
+            <p><strong>Match completed!</strong></p>
+        `;
+        
+        this.stopGameTimer();
     }
     
-    showCountdown(seconds) {
+    hideRoundWinScreen() {
+        this.roundWinScreen.style.display = 'none';
+    }
+    
+    hideMatchWinScreen() {
+        this.matchWinScreen.style.display = 'none';
+    }
+    
+    getScoreboardHTML() {
+        if (!this.gameState || !this.gameState.players) return '';
+        
+        const sortedPlayers = [...this.gameState.players].sort((a, b) => b.roundWins - a.roundWins);
+        
+        return sortedPlayers.map(player => `
+            <div class="score-line ${player.id === this.playerId ? 'current-player' : ''}">
+                <span>${player.name}</span>
+                <span class="score">${player.roundWins} wins</span>
+            </div>
+        `).join('');
+    }
+    
+    startNextRoundCountdown() {
+        const countdownElement = document.getElementById('nextRoundTimer');
+        let remaining = 3;
+        
+        const countdownInterval = setInterval(() => {
+            remaining--;
+            if (remaining > 0) {
+                countdownElement.textContent = remaining;
+            } else {
+                countdownElement.textContent = '0';
+                clearInterval(countdownInterval);
+            }
+        }, 1000);
+    }
+    
+    showCountdown(seconds, title = 'Game Starting In...') {
         this.countdownOverlay.style.display = 'flex';
+        const countdownTitle = document.querySelector('.countdown-content h2');
         const countdownNumber = document.getElementById('countdownNumber');
+        
+        countdownTitle.textContent = title;
         
         let remaining = seconds;
         countdownNumber.textContent = remaining;
@@ -372,7 +454,9 @@ class SquaregMultiplayer {
                 countdownNumber.textContent = 'GO!';
                 setTimeout(() => {
                     this.hideCountdown();
-                    this.startGameTimer();
+                    if (title.includes('Game Starting')) {
+                        this.startGameTimer();
+                    }
                 }, 1000);
                 clearInterval(countdownInterval);
             }
@@ -413,6 +497,7 @@ class SquaregMultiplayer {
         
         // Update room info
         this.gameStatusDisplay.textContent = this.gameState.gameState;
+        this.roundInfoDisplay.textContent = `${this.gameState.currentRound}/${this.gameState.maxRounds}`;
         
         // Update players list
         this.updatePlayersList();
@@ -426,7 +511,7 @@ class SquaregMultiplayer {
         this.updateControlsState();
         
         // Stop timer if game finished
-        if (this.gameState.gameState === 'finished') {
+        if (this.gameState.gameState === 'matchFinished') {
             this.stopGameTimer();
         }
     }
@@ -437,7 +522,10 @@ class SquaregMultiplayer {
         this.playerCount.textContent = this.gameState.players.length;
         this.playersList.innerHTML = '';
         
-        this.gameState.players.forEach(player => {
+        // Sort players by round wins (descending)
+        const sortedPlayers = [...this.gameState.players].sort((a, b) => b.roundWins - a.roundWins);
+        
+        sortedPlayers.forEach((player, index) => {
             const playerCard = document.createElement('div');
             playerCard.className = 'player-card';
             
@@ -449,9 +537,22 @@ class SquaregMultiplayer {
                 playerCard.classList.add('winner');
             }
             
+            if (player.id === this.gameState.matchWinner) {
+                playerCard.classList.add('match-winner');
+            }
+            
+            // Add ranking emoji
+            let rankEmoji = '';
+            if (index === 0 && player.roundWins > 0) rankEmoji = '🥇';
+            else if (index === 1 && player.roundWins > 0) rankEmoji = '🥈';
+            else if (index === 2 && player.roundWins > 0) rankEmoji = '🥉';
+            
             playerCard.innerHTML = `
-                <div class="player-name">${player.name}</div>
-                <div class="player-moves">${player.moves} moves</div>
+                <div class="player-name">${rankEmoji} ${player.name}</div>
+                <div class="player-stats">
+                    <div class="player-score">${player.roundWins} wins</div>
+                    <div class="player-moves">${player.moves} moves</div>
+                </div>
             `;
             
             this.playersList.appendChild(playerCard);

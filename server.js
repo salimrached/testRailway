@@ -26,10 +26,14 @@ class GameRoom {
         this.size = size;
         this.players = new Map();
         this.targetBoard = [];
-        this.gameState = 'waiting'; // waiting, countdown, playing, finished
+        this.gameState = 'waiting'; // waiting, countdown, playing, finished, matchFinished
         this.winner = null;
+        this.matchWinner = null;
         this.startTime = null;
         this.maxPlayers = 4;
+        this.currentRound = 1;
+        this.maxRounds = 7; // Best of 7
+        this.roundScores = new Map(); // Track wins per player
         
         this.generateTargetBoard();
     }
@@ -44,17 +48,63 @@ class GameRoom {
     }
     
     generateTargetBoard() {
-        this.targetBoard = [];
+        // Create initial ordered board
+        const initialBoard = [];
         for (let row = 0; row < this.size; row++) {
-            this.targetBoard[row] = [];
+            initialBoard[row] = [];
             for (let col = 0; col < this.size; col++) {
-                this.targetBoard[row][col] = {
+                initialBoard[row][col] = {
                     id: row * this.size + col,
                     colorIndex: row,
                     value: row * this.size + col
                 };
             }
         }
+        
+        // Create shuffled target board (this is what players need to match)
+        this.targetBoard = JSON.parse(JSON.stringify(initialBoard));
+        this.shuffleTargetBoard();
+    }
+    
+    shuffleTargetBoard() {
+        // Apply random rotations to create the target pattern
+        const shuffleMoves = 20 + Math.floor(Math.random() * 15); // 20-35 moves for good scrambling
+        
+        for (let i = 0; i < shuffleMoves; i++) {
+            const moveType = Math.floor(Math.random() * 4);
+            const index = Math.floor(Math.random() * this.size);
+            
+            switch (moveType) {
+                case 0:
+                    this.rotateColumnDown(this.targetBoard, index);
+                    break;
+                case 1:
+                    this.rotateColumnUp(this.targetBoard, index);
+                    break;
+                case 2:
+                    this.rotateRowRight(this.targetBoard, index);
+                    break;
+                case 3:
+                    this.rotateRowLeft(this.targetBoard, index);
+                    break;
+            }
+        }
+    }
+    
+    createInitialPlayerBoard() {
+        // Players start with the initial ordered state
+        const board = [];
+        for (let row = 0; row < this.size; row++) {
+            board[row] = [];
+            for (let col = 0; col < this.size; col++) {
+                board[row][col] = {
+                    id: row * this.size + col,
+                    colorIndex: row,
+                    value: row * this.size + col
+                };
+            }
+        }
+        return board;
     }
     
     addPlayer(playerId, playerName, socket) {
@@ -62,8 +112,8 @@ class GameRoom {
             return false;
         }
         
-        // Create scrambled board for the player
-        const playerBoard = this.createScrambledBoard();
+        // Create initial ordered board for the player (they start organized)
+        const playerBoard = this.createInitialPlayerBoard();
         
         this.players.set(playerId, {
             id: playerId,
@@ -71,15 +121,20 @@ class GameRoom {
             socket: socket,
             board: playerBoard,
             moves: 0,
+            roundWins: 0, // Track round wins
             isReady: false,
             joinTime: Date.now()
         });
+        
+        // Initialize score tracking
+        this.roundScores.set(playerId, 0);
         
         return true;
     }
     
     removePlayer(playerId) {
         this.players.delete(playerId);
+        this.roundScores.delete(playerId);
         if (this.players.size === 0) {
             // Room is empty, can be cleaned up
             return true;
@@ -87,34 +142,27 @@ class GameRoom {
         return false;
     }
     
-    createScrambledBoard() {
-        // Start with target board
-        let board = JSON.parse(JSON.stringify(this.targetBoard));
-        
-        // Apply random rotations to scramble
-        const scrambleMoves = 15 + Math.floor(Math.random() * 10); // 15-25 moves
-        
-        for (let i = 0; i < scrambleMoves; i++) {
-            const moveType = Math.floor(Math.random() * 4);
-            const index = Math.floor(Math.random() * this.size);
-            
-            switch (moveType) {
-                case 0:
-                    this.rotateColumnDown(board, index);
-                    break;
-                case 1:
-                    this.rotateColumnUp(board, index);
-                    break;
-                case 2:
-                    this.rotateRowRight(board, index);
-                    break;
-                case 3:
-                    this.rotateRowLeft(board, index);
-                    break;
-            }
-        }
-        
-        return board;
+    getGameState() {
+        return {
+            id: this.id,
+            roomCode: this.roomCode,
+            size: this.size,
+            gameState: this.gameState,
+            currentRound: this.currentRound,
+            maxRounds: this.maxRounds,
+            targetBoard: this.targetBoard,
+            players: Array.from(this.players.values()).map(p => ({
+                id: p.id,
+                name: p.name,
+                moves: p.moves,
+                roundWins: p.roundWins,
+                board: p.board
+            })),
+            winner: this.winner,
+            matchWinner: this.matchWinner,
+            roundScores: Object.fromEntries(this.roundScores),
+            startTime: this.startTime
+        };
     }
     
     // Board manipulation methods (same logic as client)
@@ -180,14 +228,60 @@ class GameRoom {
         
         player.moves++;
         
-        // Check if player won
+        // Check if player won this round
         if (this.checkWin(player.board)) {
-            this.winner = playerId;
-            this.gameState = 'finished';
-            return 'win';
+            return this.handleRoundWin(playerId);
         }
         
         return 'move';
+    }
+    
+    handleRoundWin(playerId) {
+        const player = this.players.get(playerId);
+        
+        // Increment round wins
+        player.roundWins++;
+        this.roundScores.set(playerId, player.roundWins);
+        
+        this.winner = playerId;
+        
+        // Check if this player won the match (best of 7)
+        const requiredWins = Math.ceil(this.maxRounds / 2); // 4 wins needed for best of 7
+        
+        if (player.roundWins >= requiredWins) {
+            // Match winner!
+            this.matchWinner = playerId;
+            this.gameState = 'matchFinished';
+            return 'matchWin';
+        } else {
+            // Round winner, but match continues
+            this.gameState = 'roundFinished';
+            return 'roundWin';
+        }
+    }
+    
+    startNextRound() {
+        if (this.gameState !== 'roundFinished') {
+            return false;
+        }
+        
+        this.currentRound++;
+        this.winner = null;
+        
+        // Generate new target pattern
+        this.shuffleTargetBoard();
+        
+        // Reset all player boards to initial state
+        this.players.forEach(player => {
+            player.board = this.createInitialPlayerBoard();
+            player.moves = 0;
+        });
+        
+        // Start new round countdown
+        this.gameState = 'countdown';
+        this.startTime = Date.now();
+        
+        return true;
     }
     
     checkWin(playerBoard) {
@@ -221,14 +315,19 @@ class GameRoom {
             roomCode: this.roomCode,
             size: this.size,
             gameState: this.gameState,
+            currentRound: this.currentRound,
+            maxRounds: this.maxRounds,
             targetBoard: this.targetBoard,
             players: Array.from(this.players.values()).map(p => ({
                 id: p.id,
                 name: p.name,
                 moves: p.moves,
+                roundWins: p.roundWins,
                 board: p.board
             })),
             winner: this.winner,
+            matchWinner: this.matchWinner,
+            roundScores: Object.fromEntries(this.roundScores),
             startTime: this.startTime
         };
     }
@@ -356,13 +455,39 @@ io.on('connection', (socket) => {
         const { moveType, index } = data;
         const result = room.applyMove(socket.id, moveType, index);
         
-        if (result === 'win') {
-            // Player won!
-            io.to(room.id).emit('gameWon', {
+        if (result === 'matchWin') {
+            // Player won the entire match!
+            io.to(room.id).emit('matchWon', {
                 winner: socket.id,
                 winnerName: room.players.get(socket.id).name,
+                finalScore: room.players.get(socket.id).roundWins,
                 gameState: room.getGameState()
             });
+        } else if (result === 'roundWin') {
+            // Player won this round
+            io.to(room.id).emit('roundWon', {
+                winner: socket.id,
+                winnerName: room.players.get(socket.id).name,
+                roundNumber: room.currentRound,
+                score: room.players.get(socket.id).roundWins,
+                gameState: room.getGameState()
+            });
+            
+            // Auto-start next round after 3 seconds
+            setTimeout(() => {
+                if (room.startNextRound()) {
+                    io.to(room.id).emit('nextRoundStarting', {
+                        roundNumber: room.currentRound,
+                        countdown: 3,
+                        gameState: room.getGameState()
+                    });
+                    
+                    setTimeout(() => {
+                        room.gameState = 'playing';
+                        io.to(room.id).emit('gameStateUpdate', room.getGameState());
+                    }, 3000);
+                }
+            }, 3000);
         } else if (result === 'move') {
             // Valid move, broadcast update
             io.to(room.id).emit('gameStateUpdate', room.getGameState());
