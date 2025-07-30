@@ -32,6 +32,7 @@ class SquaregMultiplayer {
         this.joinGameForm = document.getElementById('joinGameForm');
         this.roomCodeInput = document.getElementById('roomCodeInput');
         this.joinGameBtn = document.getElementById('joinGameBtn');
+        this.startGameBtn = document.getElementById('startGameBtn');
         this.backToMenuBtn = document.getElementById('backToMenuBtn');
         this.leaveGameBtn = document.getElementById('leaveGameBtn');
         this.playNewMatchBtn = document.getElementById('playNewMatchBtn');
@@ -55,6 +56,7 @@ class SquaregMultiplayer {
         this.gameTimerDisplay = document.getElementById('gameTimer');
         this.playersList = document.getElementById('playersList');
         this.playerCount = document.getElementById('playerCount');
+        this.waitingMessage = document.getElementById('waitingMessage');
         this.moveCountDisplay = document.getElementById('moveCount');
         
         this.setupEventListeners();
@@ -65,6 +67,7 @@ class SquaregMultiplayer {
         this.createGameBtn.addEventListener('click', () => this.createGame());
         this.showJoinFormBtn.addEventListener('click', () => this.showJoinForm());
         this.joinGameBtn.addEventListener('click', () => this.joinGameWithCode());
+        this.startGameBtn.addEventListener('click', () => this.startGame());
         this.backToMenuBtn.addEventListener('click', () => this.showMainMenu());
         this.leaveGameBtn.addEventListener('click', () => this.leaveGame());
         this.playNewMatchBtn.addEventListener('click', () => this.playNewMatch());
@@ -281,6 +284,10 @@ class SquaregMultiplayer {
     playNewMatch() {
         this.hideMatchWinScreen();
         this.leaveGame();
+    }
+    
+    startGame() {
+        this.socket.emit('startGame', {});
     }
     
     handleMove(button) {
@@ -520,6 +527,16 @@ class SquaregMultiplayer {
         if (!this.gameState) return;
         
         this.playerCount.textContent = this.gameState.players.length;
+        
+        // Show/hide waiting message
+        if (this.gameState.gameState === 'waiting' && this.gameState.players.length < 2) {
+            this.waitingMessage.style.display = 'block';
+            this.playersList.style.display = 'none';
+        } else {
+            this.waitingMessage.style.display = 'none';
+            this.playersList.style.display = 'block';
+        }
+        
         this.playersList.innerHTML = '';
         
         // Sort players by round wins (descending)
@@ -650,11 +667,22 @@ class SquaregMultiplayer {
     
     updateControlsState() {
         const isPlaying = this.gameState?.gameState === 'playing';
+        const isWaiting = this.gameState?.gameState === 'waiting';
+        const hasEnoughPlayers = this.gameState?.players?.length >= 2;
         
         // Enable/disable rotation buttons
         document.querySelectorAll('.rotation-btn').forEach(btn => {
             btn.disabled = !isPlaying;
         });
+        
+        // Show/hide start game button
+        if (this.startGameBtn) {
+            if (isWaiting && hasEnoughPlayers) {
+                this.startGameBtn.style.display = 'inline-block';
+            } else {
+                this.startGameBtn.style.display = 'none';
+            }
+        }
     }
     
     updateMoveCount() {

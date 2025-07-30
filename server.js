@@ -30,7 +30,7 @@ class GameRoom {
         this.winner = null;
         this.matchWinner = null;
         this.startTime = null;
-        this.maxPlayers = 4;
+        this.maxPlayers = 8; // Increased to 8 players
         this.currentRound = 1;
         this.maxRounds = 7; // Best of 7
         this.roundScores = new Map(); // Track wins per player
@@ -422,24 +422,41 @@ io.on('connection', (socket) => {
             
             // Broadcast updated game state to all players in room
             io.to(room.id).emit('gameStateUpdate', room.getGameState());
-            
-            // Auto-start if room has 2+ players (for testing)
-            if (room.players.size >= 2 && room.gameState === 'waiting') {
-                setTimeout(() => {
-                    if (room.startGame()) {
-                        io.to(room.id).emit('gameStarting', {
-                            countdown: 3,
-                            gameState: room.getGameState()
-                        });
-                        
-                        setTimeout(() => {
-                            io.to(room.id).emit('gameStateUpdate', room.getGameState());
-                        }, 3000);
-                    }
-                }, 2000); // 2 second delay before starting
-            }
         } else {
             socket.emit('joinError', { message: 'Room is full' });
+        }
+    });
+    
+    socket.on('startGame', (data) => {
+        const roomId = playerRooms.get(socket.id);
+        const room = gameRooms.get(roomId);
+        
+        if (!room) {
+            socket.emit('error', { message: 'Room not found' });
+            return;
+        }
+        
+        if (room.gameState !== 'waiting') {
+            socket.emit('error', { message: 'Game already started or finished' });
+            return;
+        }
+        
+        if (room.players.size < 2) {
+            socket.emit('error', { message: 'Need at least 2 players to start' });
+            return;
+        }
+        
+        // Start the game
+        if (room.startGame()) {
+            io.to(room.id).emit('gameStarting', {
+                countdown: 3,
+                gameState: room.getGameState()
+            });
+            
+            setTimeout(() => {
+                room.gameState = 'playing';
+                io.to(room.id).emit('gameStateUpdate', room.getGameState());
+            }, 3000);
         }
     });
     

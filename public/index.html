@@ -86,7 +86,11 @@
             
             <!-- Players List -->
             <div class="players-container">
-                <h3>Scoreboard (<span id="playerCount">0</span> Players)</h3>
+                <h3>Scoreboard (<span id="playerCount">0</span>/8 Players)</h3>
+                <div class="waiting-message" id="waitingMessage" style="display: none;">
+                    <p>Waiting for players to join...</p>
+                    <p><small>Need at least 2 players to start the match</small></p>
+                </div>
                 <div class="players-list" id="playersList">
                     <!-- Players will be added dynamically -->
                 </div>
@@ -134,6 +138,7 @@
             
             <!-- Game Controls -->
             <div class="controls">
+                <button id="startGameBtn" class="control-btn primary" style="display: none;">Start Game</button>
                 <button id="leaveGameBtn" class="control-btn secondary">Leave Game</button>
                 <div class="move-counter">
                     Moves: <span id="moveCount">0</span>

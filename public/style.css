@@ -298,6 +298,23 @@ h1 {
     color: #14a085;
 }
 
+.waiting-message {
+    text-align: center;
+    padding: 20px;
+    background: rgba(0,0,0,0.2);
+    border-radius: 10px;
+    margin-bottom: 15px;
+}
+
+.waiting-message p {
+    margin-bottom: 5px;
+    color: #cccccc;
+}
+
+.waiting-message small {
+    color: #f39c12;
+}
+
 .player-card {
     background: rgba(255,255,255,0.1);
     padding: 10px;
