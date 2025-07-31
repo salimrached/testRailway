@@ -147,6 +147,10 @@ h1 {
     background: linear-gradient(135deg, #34495e, #2c3e50);
 }
 
+.mode-btn.solo {
+    background: linear-gradient(135deg, #9b59b6, #8e44ad);
+}
+
 .mode-btn:hover {
     transform: translateY(-2px);
     box-shadow: 0 6px 12px rgba(0,0,0,0.3);
@@ -158,6 +162,10 @@ h1 {
 
 .mode-btn.secondary:hover {
     background: linear-gradient(135deg, #4a6276, #3d5266);
+}
+
+.mode-btn.solo:hover {
+    background: linear-gradient(135deg, #b370c7, #a569bd);
 }
 
 .mode-icon {
@@ -380,18 +388,18 @@ h1 {
 }
 
 .target-board.size-3 {
-    grid-template-columns: repeat(3, 30px);
-    grid-template-rows: repeat(3, 30px);
+    grid-template-columns: repeat(3, 60px);
+    grid-template-rows: repeat(3, 60px);
 }
 
 .target-board.size-4 {
-    grid-template-columns: repeat(4, 25px);
-    grid-template-rows: repeat(4, 25px);
+    grid-template-columns: repeat(4, 50px);
+    grid-template-rows: repeat(4, 50px);
 }
 
 .target-board.size-5 {
-    grid-template-columns: repeat(5, 22px);
-    grid-template-rows: repeat(5, 22px);
+    grid-template-columns: repeat(5, 45px);
+    grid-template-rows: repeat(5, 45px);
 }
 
 .target-tile {

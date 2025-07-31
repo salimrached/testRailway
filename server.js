@@ -32,7 +32,7 @@ class GameRoom {
         this.startTime = null;
         this.maxPlayers = 8; // Increased to 8 players
         this.currentRound = 1;
-        this.maxRounds = 7; // Best of 7
+        this.maxRounds = 7; // First to 7 wins
         this.roundScores = new Map(); // Track wins per player
         
         this.generateTargetBoard();
@@ -245,8 +245,8 @@ class GameRoom {
         
         this.winner = playerId;
         
-        // Check if this player won the match (best of 7)
-        const requiredWins = Math.ceil(this.maxRounds / 2); // 4 wins needed for best of 7
+        // Check if this player won the match (first to 7 wins)
+        const requiredWins = 7; // 7 wins needed to win the match
         
         if (player.roundWins >= requiredWins) {
             // Match winner!

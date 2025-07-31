@@ -14,6 +14,12 @@ class SquaregMultiplayer {
         this.gameTimer = null;
         this.gameStartTime = null;
         
+        // Single player mode variables
+        this.isSoloMode = false;
+        this.soloScore = 0;
+        this.soloBoard = [];
+        this.soloTargetBoard = [];
+        
         this.initializeUI();
         this.connectToServer();
     }
@@ -29,6 +35,7 @@ class SquaregMultiplayer {
         this.playerNameInput = document.getElementById('playerNameInput');
         this.createGameBtn = document.getElementById('createGameBtn');
         this.showJoinFormBtn = document.getElementById('showJoinFormBtn');
+        this.playSoloBtn = document.getElementById('playSoloBtn');
         this.joinGameForm = document.getElementById('joinGameForm');
         this.roomCodeInput = document.getElementById('roomCodeInput');
         this.joinGameBtn = document.getElementById('joinGameBtn');
@@ -66,6 +73,7 @@ class SquaregMultiplayer {
         // Lobby events
         this.createGameBtn.addEventListener('click', () => this.createGame());
         this.showJoinFormBtn.addEventListener('click', () => this.showJoinForm());
+        this.playSoloBtn.addEventListener('click', () => this.startSoloMode());
         this.joinGameBtn.addEventListener('click', () => this.joinGameWithCode());
         this.startGameBtn.addEventListener('click', () => this.startGame());
         this.backToMenuBtn.addEventListener('click', () => this.showMainMenu());
@@ -106,8 +114,11 @@ class SquaregMultiplayer {
         
         // Game board interactions (event delegation)
         document.addEventListener('click', (e) => {
-            if (e.target.classList.contains('rotation-btn') && this.gameState?.gameState === 'playing') {
-                this.handleMove(e.target);
+            if (e.target.classList.contains('rotation-btn')) {
+                // Check if in solo mode or multiplayer playing state
+                if (this.isSoloMode || this.gameState?.gameState === 'playing') {
+                    this.handleMove(e.target);
+                }
             }
         });
     }
@@ -224,6 +235,109 @@ class SquaregMultiplayer {
     showMainMenu() {
         this.joinGameForm.style.display = 'none';
         this.roomCodeInput.value = '';
+        this.isSoloMode = false;
+    }
+    
+    startSoloMode() {
+        const playerName = this.playerNameInput.value.trim() || `Player_${Math.floor(Math.random() * 1000)}`;
+        
+        // Set solo mode flags
+        this.isSoloMode = true;
+        this.soloScore = 0;
+        this.moveCount = 0;
+        
+        // Initialize solo game
+        this.initializeSoloGame();
+        
+        // Show game screen
+        this.lobbyScreen.style.display = 'none';
+        this.gameScreen.style.display = 'block';
+        
+        // Update UI for solo mode
+        this.updateSoloGameUI(playerName);
+        
+        // Start the timer
+        this.startGameTimer();
+    }
+    
+    initializeSoloGame() {
+        // Create initial ordered board
+        this.soloBoard = this.createInitialBoard();
+        
+        // Create shuffled target board
+        this.soloTargetBoard = this.createInitialBoard();
+        this.shuffleSoloTarget();
+        
+        // Render the boards
+        this.renderSoloBoards();
+        this.updateSoloButtons();
+    }
+    
+    createInitialBoard() {
+        const board = [];
+        for (let row = 0; row < this.currentSize; row++) {
+            board[row] = [];
+            for (let col = 0; col < this.currentSize; col++) {
+                board[row][col] = {
+                    id: row * this.currentSize + col,
+                    colorIndex: row,
+                    value: row * this.currentSize + col
+                };
+            }
+        }
+        return board;
+    }
+    
+    shuffleSoloTarget() {
+        // Apply random rotations to create the target pattern
+        const shuffleMoves = 20 + Math.floor(Math.random() * 15);
+        
+        for (let i = 0; i < shuffleMoves; i++) {
+            const moveType = Math.floor(Math.random() * 4);
+            const index = Math.floor(Math.random() * this.currentSize);
+            
+            switch (moveType) {
+                case 0:
+                    this.rotateColumnDown(this.soloTargetBoard, index);
+                    break;
+                case 1:
+                    this.rotateColumnUp(this.soloTargetBoard, index);
+                    break;
+                case 2:
+                    this.rotateRowRight(this.soloTargetBoard, index);
+                    break;
+                case 3:
+                    this.rotateRowLeft(this.soloTargetBoard, index);
+                    break;
+            }
+        }
+    }
+    
+    updateSoloGameUI(playerName) {
+        // Hide multiplayer elements
+        document.getElementById('roomCode').textContent = 'SOLO MODE';
+        document.getElementById('copyRoomCodeBtn').style.display = 'none';
+        document.getElementById('roundInfo').textContent = `Score: ${this.soloScore}`;
+        document.getElementById('gameStatus').textContent = 'Playing';
+        
+        // Update players list for solo mode
+        document.getElementById('playerCount').textContent = '1';
+        document.querySelector('.players-container h3').textContent = 'Solo Play';
+        
+        const playersList = document.getElementById('playersList');
+        playersList.innerHTML = `
+            <div class="player-card current-player">
+                <div class="player-name">👤 ${playerName}</div>
+                <div class="player-stats">
+                    <div class="player-score">${this.soloScore} wins</div>
+                    <div class="player-moves">${this.moveCount} moves</div>
+                </div>
+            </div>
+        `;
+        
+        // Hide start game button and waiting message
+        document.getElementById('startGameBtn').style.display = 'none';
+        document.getElementById('waitingMessage').style.display = 'none';
     }
     
     joinGameWithCode() {
@@ -275,10 +389,17 @@ class SquaregMultiplayer {
     }
     
     leaveGame() {
-        this.socket.disconnect();
-        this.socket.connect();
-        this.showLobbyScreen();
-        this.resetGame();
+        if (this.isSoloMode) {
+            // Just return to lobby for solo mode
+            this.showLobbyScreen();
+            this.resetGame();
+        } else {
+            // Disconnect and reconnect for multiplayer
+            this.socket.disconnect();
+            this.socket.connect();
+            this.showLobbyScreen();
+            this.resetGame();
+        }
     }
     
     playNewMatch() {
@@ -312,17 +433,148 @@ class SquaregMultiplayer {
         // Animate button
         this.animateButton(button);
         
-        // Send move to server
-        this.socket.emit('makeMove', { moveType, index });
-        
-        // Update local move count
-        this.moveCount++;
-        this.updateMoveCount();
+        if (this.isSoloMode) {
+            // Handle solo mode move
+            this.handleSoloMove(moveType, index);
+        } else {
+            // Send move to server for multiplayer
+            this.socket.emit('makeMove', { moveType, index });
+            
+            // Update local move count for multiplayer
+            this.moveCount++;
+            this.updateMoveCount();
+        }
     }
     
     animateButton(button) {
         button.classList.add('clicked');
         setTimeout(() => button.classList.remove('clicked'), 300);
+    }
+    
+    handleSoloMove(moveType, index) {
+        // Apply the move to the solo board
+        switch (moveType) {
+            case 'columnDown':
+                this.rotateColumnDown(this.soloBoard, index);
+                break;
+            case 'columnUp':
+                this.rotateColumnUp(this.soloBoard, index);
+                break;
+            case 'rowRight':
+                this.rotateRowRight(this.soloBoard, index);
+                break;
+            case 'rowLeft':
+                this.rotateRowLeft(this.soloBoard, index);
+                break;
+        }
+        
+        // Update move count
+        this.moveCount++;
+        
+        // Re-render the board
+        this.renderSoloBoards();
+        
+        // Update UI
+        this.updateSoloPlayerStats();
+        
+        // Check for win
+        if (this.checkSoloWin()) {
+            this.handleSoloWin();
+        }
+    }
+    
+    checkSoloWin() {
+        for (let row = 0; row < this.currentSize; row++) {
+            for (let col = 0; col < this.currentSize; col++) {
+                if (this.soloBoard[row][col].colorIndex !== this.soloTargetBoard[row][col].colorIndex) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+    
+    handleSoloWin() {
+        this.soloScore++;
+        
+        // Show win message
+        this.showSoloWinMessage();
+        
+        // Start new round after 3 seconds
+        setTimeout(() => {
+            this.startNewSoloRound();
+        }, 3000);
+    }
+    
+    showSoloWinMessage() {
+        // Show win screen
+        const roundWinScreen = document.getElementById('roundWinScreen');
+        const roundWinTitle = document.getElementById('roundWinTitle');
+        const roundWinnerInfo = document.getElementById('roundWinnerInfo');
+        const nextRoundCountdown = document.getElementById('nextRoundCountdown');
+        
+        if (roundWinScreen && roundWinTitle && roundWinnerInfo) {
+            roundWinTitle.textContent = 'Congratulations!';
+            roundWinnerInfo.innerHTML = `
+                <div class="winner-card">
+                    <div class="winner-name">🎉 You solved it!</div>
+                    <div class="winner-stats">
+                        <div class="winner-moves">${this.moveCount} moves</div>
+                        <div class="winner-score">Score: ${this.soloScore}</div>
+                    </div>
+                </div>
+            `;
+            
+            // Hide countdown for solo mode
+            if (nextRoundCountdown) {
+                nextRoundCountdown.style.display = 'none';
+            }
+            
+            roundWinScreen.style.display = 'flex';
+            
+            // Hide after 3 seconds
+            setTimeout(() => {
+                roundWinScreen.style.display = 'none';
+                if (nextRoundCountdown) {
+                    nextRoundCountdown.style.display = 'block';
+                }
+            }, 3000);
+        } else {
+            // Fallback: simple alert if win screen elements don't exist
+            alert(`🎉 Congratulations! You solved it in ${this.moveCount} moves! Score: ${this.soloScore + 1}`);
+        }
+    }
+    
+    startNewSoloRound() {
+        // Reset move count
+        this.moveCount = 0;
+        
+        // Generate new puzzle
+        this.soloBoard = this.createInitialBoard();
+        this.soloTargetBoard = this.createInitialBoard();
+        this.shuffleSoloTarget();
+        
+        // Re-render boards
+        this.renderSoloBoards();
+        
+        // Update UI
+        this.updateSoloPlayerStats();
+        document.getElementById('roundInfo').textContent = `Score: ${this.soloScore}`;
+    }
+    
+    updateSoloPlayerStats() {
+        const playersList = document.getElementById('playersList');
+        const playerName = this.playerNameInput.value.trim() || `Player_${Math.floor(Math.random() * 1000)}`;
+        
+        playersList.innerHTML = `
+            <div class="player-card current-player">
+                <div class="player-name">👤 ${playerName}</div>
+                <div class="player-stats">
+                    <div class="player-score">${this.soloScore} wins</div>
+                    <div class="player-moves">${this.moveCount} moves</div>
+                </div>
+            </div>
+        `;
     }
     
     showLobbyScreen() {
@@ -619,6 +871,89 @@ class SquaregMultiplayer {
         this.updateMoveCount();
     }
     
+    renderSoloBoards() {
+        if (!this.isSoloMode) return;
+        
+        // Render target board
+        this.targetBoard.innerHTML = '';
+        this.targetBoard.className = `target-board size-${this.currentSize}`;
+        
+        for (let row = 0; row < this.currentSize; row++) {
+            for (let col = 0; col < this.currentSize; col++) {
+                const tile = this.soloTargetBoard[row][col];
+                const tileElement = document.createElement('div');
+                tileElement.className = `target-tile color-${tile.colorIndex}`;
+                tileElement.textContent = tile.value;
+                this.targetBoard.appendChild(tileElement);
+            }
+        }
+        
+        // Render game board
+        this.gameBoard.innerHTML = '';
+        this.gameBoard.className = `game-board size-${this.currentSize}`;
+        
+        for (let row = 0; row < this.currentSize; row++) {
+            for (let col = 0; col < this.currentSize; col++) {
+                const tile = this.soloBoard[row][col];
+                const tileElement = document.createElement('div');
+                tileElement.className = `tile color-${tile.colorIndex}`;
+                tileElement.textContent = tile.value;
+                tileElement.dataset.row = row;
+                tileElement.dataset.col = col;
+                this.gameBoard.appendChild(tileElement);
+            }
+        }
+        
+        // Update move count
+        this.updateMoveCount();
+    }
+    
+    updateSoloButtons() {
+        if (!this.isSoloMode) return;
+        
+        const size = this.currentSize;
+        
+        // Update top buttons
+        this.topButtons.innerHTML = '';
+        for (let i = 0; i < size; i++) {
+            const btn = document.createElement('button');
+            btn.className = 'rotation-btn top-btn';
+            btn.dataset.col = i;
+            btn.textContent = '↓';
+            this.topButtons.appendChild(btn);
+        }
+        
+        // Update bottom buttons
+        this.bottomButtons.innerHTML = '';
+        for (let i = 0; i < size; i++) {
+            const btn = document.createElement('button');
+            btn.className = 'rotation-btn bottom-btn';
+            btn.dataset.col = i;
+            btn.textContent = '↑';
+            this.bottomButtons.appendChild(btn);
+        }
+        
+        // Update left buttons
+        this.leftButtons.innerHTML = '';
+        for (let i = 0; i < size; i++) {
+            const btn = document.createElement('button');
+            btn.className = 'rotation-btn left-btn';
+            btn.dataset.row = i;
+            btn.textContent = '→';
+            this.leftButtons.appendChild(btn);
+        }
+        
+        // Update right buttons
+        this.rightButtons.innerHTML = '';
+        for (let i = 0; i < size; i++) {
+            const btn = document.createElement('button');
+            btn.className = 'rotation-btn right-btn';
+            btn.dataset.row = i;
+            btn.textContent = '←';
+            this.rightButtons.appendChild(btn);
+        }
+    }
+    
     updateButtons() {
         if (!this.gameState) return;
         
@@ -697,6 +1032,43 @@ class SquaregMultiplayer {
         this.stopGameTimer();
         this.gameStartTime = null;
         this.updateMoveCount();
+    }
+    
+    // Board manipulation methods for solo mode
+    rotateColumnDown(board, colIndex) {
+        if (colIndex < 0 || colIndex >= this.currentSize) return;
+        const temp = board[this.currentSize - 1][colIndex];
+        for (let row = this.currentSize - 1; row > 0; row--) {
+            board[row][colIndex] = board[row - 1][colIndex];
+        }
+        board[0][colIndex] = temp;
+    }
+    
+    rotateColumnUp(board, colIndex) {
+        if (colIndex < 0 || colIndex >= this.currentSize) return;
+        const temp = board[0][colIndex];
+        for (let row = 0; row < this.currentSize - 1; row++) {
+            board[row][colIndex] = board[row + 1][colIndex];
+        }
+        board[this.currentSize - 1][colIndex] = temp;
+    }
+    
+    rotateRowRight(board, rowIndex) {
+        if (rowIndex < 0 || rowIndex >= this.currentSize) return;
+        const temp = board[rowIndex][this.currentSize - 1];
+        for (let col = this.currentSize - 1; col > 0; col--) {
+            board[rowIndex][col] = board[rowIndex][col - 1];
+        }
+        board[rowIndex][0] = temp;
+    }
+    
+    rotateRowLeft(board, rowIndex) {
+        if (rowIndex < 0 || rowIndex >= this.currentSize) return;
+        const temp = board[rowIndex][0];
+        for (let col = 0; col < this.currentSize - 1; col++) {
+            board[rowIndex][col] = board[rowIndex][col + 1];
+        }
+        board[rowIndex][this.currentSize - 1] = temp;
     }
 }
 
